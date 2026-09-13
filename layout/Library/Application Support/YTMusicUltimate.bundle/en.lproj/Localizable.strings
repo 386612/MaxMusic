@@ -20,6 +20,8 @@
 "PLAYBACK_RATE_BUTTON_DESC" = "Adjust playback speed";
 "SELECTABLE_LYRICS" = "Lyrics text selection";
 "SELECTABLE_LYRICS_DESC" = "Enables text selection for lyrics";
+"REALTIME_LYRICS" = "Karaoke lyrics";
+"REALTIME_LYRICS_DESC" = "Highlights lyrics character by character while the song plays";
 "VOLBAR" = "Volume bar";
 "VOLBAR_DESC" = "Adds a volume bar to the player";
 "NO_AUTORADIO" = "Disable radio";

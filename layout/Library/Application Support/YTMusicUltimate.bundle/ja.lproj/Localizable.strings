@@ -20,6 +20,8 @@
 "PLAYBACK_RATE_BUTTON_DESC" = "再生速度を変更できます";
 "SELECTABLE_LYRICS" = "歌詞のテキスト選択";
 "SELECTABLE_LYRICS_DESC" = "歌詞のテキスト選択を有効にします";
+"REALTIME_LYRICS" = "カラオケ歌詞追随";
+"REALTIME_LYRICS_DESC" = "再生に合わせて歌詞を文字単位でハイライトします";
 "VOLBAR" = "ボリュームバー";
 "VOLBAR_DESC" = "プレーヤーにボリュームバーを追加する";
 "NO_AUTORADIO" = "ラジオを無効化する";
