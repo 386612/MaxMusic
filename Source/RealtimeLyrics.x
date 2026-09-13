@@ -9,6 +9,12 @@ static BOOL YTMURealtimeLyrics(NSString *key) {
 @interface YTFormattedStringLabel : UILabel
 @end
 
+@interface YTMWatchViewController : UIViewController
+@property (nonatomic, weak, readwrite) YTPlayerViewController *playerViewController;
+@end
+
+static __weak YTPlayerViewController *YTMUObservedPlayer;
+
 @interface YTMLightweightMusicDescriptionShelfCell : UIView
 @property (nonatomic, retain) UITextView *realtimeLyricsView;
 @property (nonatomic, retain) CADisplayLink *realtimeLyricsDisplayLink;
@@ -21,6 +27,7 @@ static BOOL YTMURealtimeLyrics(NSString *key) {
 @end
 
 static YTPlayerViewController *YTMUCurrentPlayer(void) {
+    if (YTMUObservedPlayer) return YTMUObservedPlayer;
     Class playerClass = NSClassFromString(@"YTPlayerViewController");
     for (UIWindow *window in UIApplication.sharedApplication.windows) {
         NSMutableArray *pending = [NSMutableArray arrayWithObject:window];
@@ -137,7 +144,14 @@ static void YTMULoadSyncedLyrics(NSString *videoID, NSString *title, NSString *a
             }
         };
         if (!error) scan(nextJSON);
-        if (!browseID.length) { completion(nil); return; }
+        if (!browseID.length) {
+            NSString *query = [NSString stringWithFormat:@"https://lrclib.net/api/get?track_name=%@&artist_name=%@&duration=%.0f", [title stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]], [artist stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]], duration];
+            [[[NSURLSession sharedSession] dataTaskWithRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:query]] completionHandler:^(NSData *data, NSURLResponse *response, NSError *lrcError) {
+                NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+                completion(YTMUSegmentsFromLRC(json[@"syncedLyrics"]));
+            }] resume];
+            return;
+        }
         YTMUPostJSON(@"browse", @{@"browseId": browseID}, iosContext, ^(NSDictionary *browseJSON, NSError *browseError) {
             NSArray *segments = browseError ? nil : YTMUSegmentsFromTimedJSON(browseJSON);
             if (segments.count) { completion(segments); return; }
@@ -262,6 +276,18 @@ static NSAttributedString *YTMUHighlightedLine(NSString *text, double progress, 
 
 - (void)dealloc {
     [self.realtimeLyricsDisplayLink invalidate];
+}
+%end
+
+%hook YTMWatchViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    YTMUObservedPlayer = self.playerViewController;
+}
+
+- (void)setPlayerViewController:(YTPlayerViewController *)playerViewController {
+    %orig;
+    YTMUObservedPlayer = playerViewController;
 }
 %end
 
