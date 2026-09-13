@@ -41,15 +41,6 @@ static YTPlayerViewController *YTMUCurrentPlayer(void) {
     return nil;
 }
 
-static id YTMUValue(id object, NSArray<NSString *> *path) {
-    id value = object;
-    for (NSString *key in path) {
-        if (![value isKindOfClass:[NSDictionary class]]) return nil;
-        value = value[key];
-    }
-    return value;
-}
-
 static void YTMUFindTimedArrays(id object, NSMutableArray *result) {
     if ([object isKindOfClass:[NSDictionary class]]) {
         for (id value in [object allValues]) YTMUFindTimedArrays(value, result);
