@@ -21,6 +21,7 @@ static __weak YTPlayerViewController *YTMUObservedPlayer;
 @property (nonatomic, retain) NSAttributedString *realtimeLyricsSource;
 @property (nonatomic, retain) NSArray *realtimeLyricsSegments;
 @property (nonatomic, copy) NSString *realtimeLyricsVideoID;
+@property (nonatomic, retain) NSDate *realtimeLyricsLastLoadDate;
 @property (nonatomic, assign) BOOL realtimeLyricsUpdating;
 - (void)ytmu_updateRealtimeLyrics;
 - (void)ytmu_loadRealtimeLyrics;
@@ -178,6 +179,7 @@ static NSAttributedString *YTMUHighlightedLine(NSString *text, double progress, 
 %property (nonatomic, retain) NSAttributedString *realtimeLyricsSource;
 %property (nonatomic, retain) NSArray *realtimeLyricsSegments;
 %property (nonatomic, copy) NSString *realtimeLyricsVideoID;
+%property (nonatomic, retain) NSDate *realtimeLyricsLastLoadDate;
 %property (nonatomic, assign) BOOL realtimeLyricsUpdating;
 
 - (id)initWithFrame:(CGRect)frame {
@@ -227,6 +229,7 @@ static NSAttributedString *YTMUHighlightedLine(NSString *text, double progress, 
     YTPlayerViewController *player = YTMUCurrentPlayer();
     NSString *videoID = self.realtimeLyricsVideoID;
     if (!player || !videoID.length) return;
+    self.realtimeLyricsLastLoadDate = [NSDate date];
     NSString *title = player.playerResponse.playerData.videoDetails.title ?: @"";
     NSString *artist = player.playerResponse.playerData.videoDetails.author ?: @"";
     double duration = player.currentVideoTotalMediaTime;
@@ -247,6 +250,21 @@ static NSAttributedString *YTMUHighlightedLine(NSString *text, double progress, 
     if (self.realtimeLyricsUpdating) return;
     self.realtimeLyricsUpdating = YES;
     YTPlayerViewController *player = YTMUCurrentPlayer();
+    NSString *videoID = [player currentVideoID] ?: player.contentVideoID;
+    if (player && videoID.length && ![videoID isEqualToString:self.realtimeLyricsVideoID]) {
+        self.realtimeLyricsVideoID = videoID;
+        self.realtimeLyricsSegments = nil;
+        self.realtimeLyricsUpdating = NO;
+        [self ytmu_loadRealtimeLyrics];
+        return;
+    }
+    if (player && videoID.length && !self.realtimeLyricsSegments.count &&
+        (!self.realtimeLyricsLastLoadDate || -[self.realtimeLyricsLastLoadDate timeIntervalSinceNow] > 5.0)) {
+        self.realtimeLyricsVideoID = videoID;
+        self.realtimeLyricsUpdating = NO;
+        [self ytmu_loadRealtimeLyrics];
+        return;
+    }
     double current = player.currentVideoMediaTime;
     if (!self.realtimeLyricsSegments.count) {
         self.realtimeLyricsView.attributedText = self.realtimeLyricsSource;
