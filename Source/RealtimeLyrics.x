@@ -234,7 +234,7 @@ static NSAttributedString *YTMUHighlightedTokens(NSArray *tokens, double current
     NSMutableAttributedString *result = [[NSMutableAttributedString alloc] initWithString:@""];
     for (NSDictionary *token in tokens) {
         NSString *text = token[@"text"] ?: @"";
-        double start = [token[@"start"] doubleValue], end = [token[@"end"] doubleValue];
+        double end = [token[@"end"] doubleValue];
         UIColor *color = current >= end ? UIColor.systemPinkColor : UIColor.labelColor;
         [result appendAttributedString:[[NSAttributedString alloc] initWithString:text attributes:@{NSFontAttributeName: attributes[NSFontAttributeName] ?: [UIFont systemFontOfSize:16.0], NSForegroundColorAttributeName: color}]];
     }
