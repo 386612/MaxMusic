@@ -102,6 +102,44 @@ static NSArray *YTMUSegmentsFromLRC(NSString *lrc) {
     return segments.count ? segments : nil;
 }
 
+static NSArray *YTMUSegmentsFromEnhancedLRC(NSString *lrc) {
+    if (!lrc.length || [lrc rangeOfString:@"<"].location == NSNotFound) return nil;
+    NSRegularExpression *lineRegex = [NSRegularExpression regularExpressionWithPattern:@"\\[(\\d{1,3}):(\\d{2})(?:\\.(\\d{1,3}))?\\]([^\\r\\n]*)" options:0 error:nil];
+    NSRegularExpression *tokenRegex = [NSRegularExpression regularExpressionWithPattern:@"<(\\d{1,3}):(\\d{2})(?:\\.(\\d{1,3}))?>" options:0 error:nil];
+    NSMutableArray *segments = [NSMutableArray array];
+    for (NSTextCheckingResult *line in [lineRegex matchesInString:lrc options:0 range:NSMakeRange(0, lrc.length)]) {
+        NSString *body = [lrc substringWithRange:[line rangeAtIndex:4]];
+        NSArray *tags = [tokenRegex matchesInString:body options:0 range:NSMakeRange(0, body.length)];
+        if (!tags.count) continue;
+        NSMutableArray *tokens = [NSMutableArray array];
+        for (NSUInteger i = 0; i < tags.count; i++) {
+            NSTextCheckingResult *tag = tags[i];
+            NSRange fractionRange = [tag rangeAtIndex:3];
+            NSString *fraction = fractionRange.location == NSNotFound ? @"" : [body substringWithRange:fractionRange];
+            double part = fraction.length == 1 ? fraction.doubleValue / 10.0 : fraction.length == 2 ? fraction.doubleValue / 100.0 : fraction.doubleValue / 1000.0;
+            double start = [[body substringWithRange:[tag rangeAtIndex:1]] doubleValue] * 60.0 + [[body substringWithRange:[tag rangeAtIndex:2]] doubleValue] + part;
+            NSUInteger begin = NSMaxRange(tag.range);
+            NSUInteger end = i + 1 < tags.count ? [tags[i + 1] range].location : body.length;
+            if (end <= begin) continue;
+            NSString *text = [[body substringWithRange:NSMakeRange(begin, end - begin)] stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+            if (text.length) [tokens addObject:@{ @"text": text, @"start": @(start) }];
+        }
+        if (!tokens.count) continue;
+        NSMutableArray *timed = [NSMutableArray array];
+        for (NSUInteger i = 0; i < tokens.count; i++) {
+            NSMutableDictionary *token = [tokens[i] mutableCopy];
+            double start = [token[@"start"] doubleValue];
+            double end = i + 1 < tokens.count ? [tokens[i + 1][@"start"] doubleValue] : start + 0.25;
+            token[@"end"] = @(MAX(start + 0.03, end));
+            [timed addObject:token];
+        }
+        NSMutableString *text = [NSMutableString string];
+        for (NSDictionary *token in timed) [text appendString:token[@"text"]];
+        [segments addObject:@{ @"text": text, @"tokens": timed, @"start": timed.firstObject[@"start"], @"end": timed.lastObject[@"end"] }];
+    }
+    return segments.count ? segments : nil;
+}
+
 static void YTMUPostJSON(NSString *endpoint, NSDictionary *body, NSDictionary *context, void (^completion)(NSDictionary *, NSError *)) {
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://music.youtube.com/youtubei/v1/%@?prettyPrint=false", endpoint]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
@@ -129,7 +167,8 @@ static void YTMUFetchLRCLib(NSString *title, NSString *artist, double duration, 
     ];
     [[[NSURLSession sharedSession] dataTaskWithURL:components.URL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        NSArray *segments = YTMUSegmentsFromLRC(json[@"syncedLyrics"]);
+        NSArray *segments = YTMUSegmentsFromEnhancedLRC(json[@"syncedLyrics"]);
+        if (!segments.count) segments = YTMUSegmentsFromLRC(json[@"syncedLyrics"]);
         if (segments.count) { completion(segments); return; }
 
         NSURLComponents *search = [NSURLComponents componentsWithString:@"https://lrclib.net/api/search"];
@@ -140,7 +179,8 @@ static void YTMUFetchLRCLib(NSString *title, NSString *artist, double duration, 
         [[[NSURLSession sharedSession] dataTaskWithURL:search.URL completionHandler:^(NSData *searchData, NSURLResponse *searchResponse, NSError *searchError) {
             NSArray *results = searchData ? [NSJSONSerialization JSONObjectWithData:searchData options:0 error:nil] : nil;
             for (NSDictionary *result in results) {
-                NSArray *found = YTMUSegmentsFromLRC(result[@"syncedLyrics"]);
+                NSArray *found = YTMUSegmentsFromEnhancedLRC(result[@"syncedLyrics"]);
+                if (!found.count) found = YTMUSegmentsFromLRC(result[@"syncedLyrics"]);
                 if (found.count) { completion(found); return; }
             }
             completion(nil);
@@ -186,6 +226,17 @@ static NSAttributedString *YTMUHighlightedLine(NSString *text, double progress, 
         if (!whitespace) seen++;
         [result addAttribute:NSForegroundColorAttributeName value:(isPlayed ? UIColor.systemPinkColor : UIColor.labelColor) range:NSMakeRange(i, 1)];
         if (isPlayed) [result addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:16.0] range:NSMakeRange(i, 1)];
+    }
+    return result;
+}
+
+static NSAttributedString *YTMUHighlightedTokens(NSArray *tokens, double current, NSDictionary *attributes) {
+    NSMutableAttributedString *result = [[NSMutableAttributedString alloc] initWithString:@""];
+    for (NSDictionary *token in tokens) {
+        NSString *text = token[@"text"] ?: @"";
+        double start = [token[@"start"] doubleValue], end = [token[@"end"] doubleValue];
+        UIColor *color = current >= end ? UIColor.systemPinkColor : UIColor.labelColor;
+        [result appendAttributedString:[[NSAttributedString alloc] initWithString:text attributes:@{NSFontAttributeName: attributes[NSFontAttributeName] ?: [UIFont systemFontOfSize:16.0], NSForegroundColorAttributeName: color}]];
     }
     return result;
 }
@@ -293,7 +344,8 @@ static NSAttributedString *YTMUHighlightedLine(NSString *text, double progress, 
     for (NSDictionary *segment in self.realtimeLyricsSegments) {
         double start = [segment[@"start"] doubleValue], end = [segment[@"end"] doubleValue];
         double progress = current < start ? 0.0 : (current >= end ? 1.0 : (current - start) / MAX(0.01, end - start));
-        [output appendAttributedString:YTMUHighlightedLine(segment[@"text"], progress, attributes)];
+        NSArray *tokens = segment[@"tokens"];
+        [output appendAttributedString:(tokens.count ? YTMUHighlightedTokens(tokens, current, attributes) : YTMUHighlightedLine(segment[@"text"], progress, attributes))];
         [output appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n" attributes:attributes]];
     }
     self.realtimeLyricsView.attributedText = output;
