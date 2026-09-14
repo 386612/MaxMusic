@@ -86,7 +86,8 @@ static NSArray *YTMUSegmentsFromLRC(NSString *lrc) {
     for (NSTextCheckingResult *match in matches) {
         double minutes = [[lrc substringWithRange:[match rangeAtIndex:1]] doubleValue];
         double seconds = [[lrc substringWithRange:[match rangeAtIndex:2]] doubleValue];
-        NSString *fraction = [lrc substringWithRange:[match rangeAtIndex:3]];
+        NSRange fractionRange = [match rangeAtIndex:3];
+        NSString *fraction = fractionRange.location == NSNotFound ? @"" : [lrc substringWithRange:fractionRange];
         double fractionSeconds = fraction.length == 1 ? fraction.doubleValue / 10.0 : fraction.length == 2 ? fraction.doubleValue / 100.0 : fraction.doubleValue / 1000.0;
         double start = minutes * 60.0 + seconds + fractionSeconds;
         NSString *text = [[lrc substringWithRange:[match rangeAtIndex:4]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -119,6 +120,34 @@ static void YTMUPostJSON(NSString *endpoint, NSDictionary *body, NSDictionary *c
     }] resume];
 }
 
+static void YTMUFetchLRCLib(NSString *title, NSString *artist, double duration, void (^completion)(NSArray *)) {
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://lrclib.net/api/get"];
+    components.queryItems = @[
+        [NSURLQueryItem queryItemWithName:@"track_name" value:title ?: @""],
+        [NSURLQueryItem queryItemWithName:@"artist_name" value:artist ?: @""],
+        [NSURLQueryItem queryItemWithName:@"duration" value:[NSString stringWithFormat:@"%.0f", duration]]
+    ];
+    [[[NSURLSession sharedSession] dataTaskWithURL:components.URL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        NSArray *segments = YTMUSegmentsFromLRC(json[@"syncedLyrics"]);
+        if (segments.count) { completion(segments); return; }
+
+        NSURLComponents *search = [NSURLComponents componentsWithString:@"https://lrclib.net/api/search"];
+        search.queryItems = @[
+            [NSURLQueryItem queryItemWithName:@"track_name" value:title ?: @""],
+            [NSURLQueryItem queryItemWithName:@"artist_name" value:artist ?: @""]
+        ];
+        [[[NSURLSession sharedSession] dataTaskWithURL:search.URL completionHandler:^(NSData *searchData, NSURLResponse *searchResponse, NSError *searchError) {
+            NSArray *results = searchData ? [NSJSONSerialization JSONObjectWithData:searchData options:0 error:nil] : nil;
+            for (NSDictionary *result in results) {
+                NSArray *found = YTMUSegmentsFromLRC(result[@"syncedLyrics"]);
+                if (found.count) { completion(found); return; }
+            }
+            completion(nil);
+        }] resume];
+    }] resume];
+}
+
 static void YTMULoadSyncedLyrics(NSString *videoID, NSString *title, NSString *artist, double duration, void (^completion)(NSArray *)) {
     if (!videoID.length) { completion(nil); return; }
     NSDictionary *iosContext = @{ @"client": @{ @"clientName": @"IOS", @"clientVersion": @"7.01.05", @"hl": @"en", @"gl": @"US" } };
@@ -136,23 +165,11 @@ static void YTMULoadSyncedLyrics(NSString *videoID, NSString *title, NSString *a
             }
         };
         if (!error) scan(nextJSON);
-        if (!browseID.length) {
-            NSString *query = [NSString stringWithFormat:@"https://lrclib.net/api/get?track_name=%@&artist_name=%@&duration=%.0f", [title stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]], [artist stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]], duration];
-            [[[NSURLSession sharedSession] dataTaskWithRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:query]] completionHandler:^(NSData *data, NSURLResponse *response, NSError *lrcError) {
-                NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-                completion(YTMUSegmentsFromLRC(json[@"syncedLyrics"]));
-            }] resume];
-            return;
-        }
+        if (!browseID.length) { YTMUFetchLRCLib(title, artist, duration, completion); return; }
         YTMUPostJSON(@"browse", @{@"browseId": browseID}, iosContext, ^(NSDictionary *browseJSON, NSError *browseError) {
             NSArray *segments = browseError ? nil : YTMUSegmentsFromTimedJSON(browseJSON);
             if (segments.count) { completion(segments); return; }
-            NSString *query = [NSString stringWithFormat:@"https://lrclib.net/api/get?track_name=%@&artist_name=%@&duration=%.0f", [title stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]], [artist stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]], duration];
-            NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:query]];
-            [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *lrcError) {
-                NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-                completion(YTMUSegmentsFromLRC(json[@"syncedLyrics"]));
-            }] resume];
+            YTMUFetchLRCLib(title, artist, duration, completion);
         });
     });
 }
